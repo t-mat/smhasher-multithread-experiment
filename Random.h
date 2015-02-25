@@ -87,6 +87,19 @@ struct Rand
       tail[i] = (uint8_t)rand_u32();
     }
   }
+
+  void fast_forward(int bytes)
+  {
+    while(bytes >= 4)
+    {
+      rand_u32();
+      bytes -= 4;
+    }
+    for(int i = 0; i < bytes; i++)
+    {
+      rand_u32();
+    }
+  }
 };
 
 //-----------------------------------------------------------------------------
