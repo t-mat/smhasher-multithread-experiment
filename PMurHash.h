@@ -16,7 +16,13 @@
 
 /* First look for special cases */
 #if defined(_MSC_VER)
-  #define MH_UINT32 unsigned long
+  /* MSVC 2010 or later has <stdint.h> */
+  #if _MSC_VER >= 1600
+    #include <stdint.h>
+    #define MH_UINT32 uint32_t
+  #else
+    #define MH_UINT32 unsigned long
+  #endif
 #endif
 
 /* If the compiler says it's C99 then take its word for it */
