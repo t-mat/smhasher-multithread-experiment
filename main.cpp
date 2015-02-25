@@ -1,4 +1,5 @@
 #include "Platform.h"
+#include "MultiThread.h"
 #include "Hashes.h"
 #include "KeysetTest.h"
 #include "SpeedTest.h"
@@ -8,6 +9,7 @@
 
 #include <stdio.h>
 #include <time.h>
+#include <vector>
 
 //-----------------------------------------------------------------------------
 // Configuration. TODO - move these to command-line flags
@@ -42,7 +44,9 @@ struct HashInfo
   const char * desc;
 };
 
-HashInfo g_hashes[] =
+std::vector<HashInfo> g_hashes;
+
+HashInfo initial_hashes[] =
 {
   { DoNothingHash,        32, 0x00000000, "donothing32", "Do-Nothing function (only valid for measuring call overhead)" },
   { DoNothingHash,        64, 0x00000000, "donothing64", "Do-Nothing function (only valid for measuring call overhead)" },
@@ -85,12 +89,24 @@ HashInfo g_hashes[] =
 
 HashInfo * findHash ( const char * name )
 {
-  for(size_t i = 0; i < sizeof(g_hashes) / sizeof(HashInfo); i++)
+  for(size_t i = 0; i < g_hashes.size(); i++)
   {
     if(_stricmp(name,g_hashes[i].name) == 0) return &g_hashes[i];
   }
 
   return NULL;
+}
+
+void addHash(const HashInfo& hashInfo)
+{
+	g_hashes.push_back(hashInfo);
+}
+
+void initHash()
+{
+	for(size_t i = 0; i < sizeof(initial_hashes) / sizeof(initial_hashes[0]); i++) {
+		addHash(initial_hashes[i]);
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -100,7 +116,7 @@ void SelfTest ( void )
 {
   bool pass = true;
 
-  for(size_t i = 0; i < sizeof(g_hashes) / sizeof(HashInfo); i++)
+  for(size_t i = 0; i < g_hashes.size(); i++)
   {
     HashInfo * info = & g_hashes[i];
 
@@ -111,7 +127,7 @@ void SelfTest ( void )
   {
     printf("Self-test FAILED!\n");
 
-    for(size_t i = 0; i < sizeof(g_hashes) / sizeof(HashInfo); i++)
+    for(size_t i = 0; i < g_hashes.size(); i++)
     {
       HashInfo * info = & g_hashes[i];
 
@@ -550,6 +566,7 @@ void testHash ( const char * name )
 
 int main ( int argc, char ** argv )
 {
+  initHash();
   const char * hashToTest = "murmur3a";
 
   if(argc < 2)
