@@ -135,6 +135,7 @@ double TestDistribution ( std::vector<hashtype> & hashes, bool drawDiagram )
 
     memset(&bins[0],0,sizeof(int)*bincount);
 
+#if 0
     for(size_t j = 0; j < hashes.size(); j++)
     {
       hashtype & hash = hashes[j];
@@ -143,7 +144,22 @@ double TestDistribution ( std::vector<hashtype> & hashes, bool drawDiagram )
 
       bins[index]++;
     }
-
+#else
+	Mutex mut;
+	threadForEach([&](size_t index, size_t step) {
+		std::vector<int> bins2(bins.size(), 0);
+		for(size_t j = hashes.size()*(index+0) / step; j < hashes.size()*(index+1) / step; j++) {
+			hashtype & hash = hashes[j];
+			uint32_t index = window(&hash,sizeof(hash),start,width);
+			bins2[index]++;
+		}
+		lockFunc(mut, [&]() {
+			for(size_t j = 0; j < bins.size(); ++j) {
+				bins[j] += bins2[j];
+			}
+		});
+	});
+#endif
     // Test the distribution, then fold the bins in half,
     // repeat until we're down to 256 bins
 
