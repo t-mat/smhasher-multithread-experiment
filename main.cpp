@@ -28,6 +28,7 @@ bool g_testWindow      = false;
 bool g_testText        = false;
 bool g_testZeroes      = false;
 bool g_testSeed        = false;
+bool g_testWithAffinity = false;
 
 //-----------------------------------------------------------------------------
 // This is the list of all hashes that SMHasher can test.
@@ -562,7 +563,9 @@ int main ( int argc, char ** argv )
 
   // Code runs on the 3rd CPU by default
 
-  SetAffinity((1 << 2));
+	if(g_testWithAffinity) {
+	  SetAffinity((1 << 2));
+	}
 
   SelfTest();
 
