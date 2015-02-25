@@ -1,6 +1,7 @@
 #include "KeysetTest.h"
 
 #include "Platform.h"
+#include "MultiThread.h"
 #include "Random.h"
 
 #include <map>
@@ -77,22 +78,23 @@ bool SanityTest ( pfHash hash, const int hashbits )
   
   Rand r(883741);
 
-  bool result = true;
-
   const int hashbytes = hashbits/8;
   const int reps = 10;
   const int keymax = 256;
   const int pad = 16;
   const int buflen = keymax + pad*3;
   
+  //----------
+  
+#if 0
+  bool result = true;
+
   uint8_t * buffer1 = new uint8_t[buflen];
   uint8_t * buffer2 = new uint8_t[buflen];
 
   uint8_t * hash1 = new uint8_t[hashbytes];
   uint8_t * hash2 = new uint8_t[hashbytes];
 
-  //----------
-  
   for(int irep = 0; irep < reps; irep++)
   {
     if(irep % (reps/10) == 0) printf(".");
@@ -137,6 +139,101 @@ bool SanityTest ( pfHash hash, const int hashbits )
     }
   }
 
+  delete [] buffer1;
+  delete [] buffer2;
+
+  delete [] hash1;
+  delete [] hash2;
+#else
+	std::atomic<bool> result = true;
+
+	struct Test {
+		Rand r;
+		size_t minRep;
+		size_t maxRep;
+	};
+
+	std::vector<Test> tests;
+	{
+		const auto n = getThreadCount();
+		std::vector<uint8_t> b1(buflen);
+		std::vector<uint8_t> b2(buflen);
+
+		for(size_t i = 0u, x = 0u; i < n; ++i) {
+			tests.push_back(Test());
+			auto& t = tests.back();
+			t.r = r;
+
+			if(x >= reps) {
+				t.minRep = reps;
+				t.maxRep = reps;
+			} else {
+				const auto x1 = std::min<size_t>(n, x + (reps + n - 1) / n);
+				t.minRep = x;
+				t.maxRep = x1;
+				x = x1;
+			}
+
+			for(auto irep = t.minRep; irep < t.maxRep; irep++) {
+				for(int len = 4; len <= keymax; len++) {
+					for(int offset = pad; offset < pad*2; offset++) {
+						r.fast_forward(buflen);
+						r.fast_forward(buflen);
+					}
+				}
+			}
+		}
+	}
+
+	threadForEach([&](size_t index, size_t step) {
+		auto& t = tests[index];
+
+		std::vector<uint8_t> hash1Buf(hashbytes);
+		std::vector<uint8_t> hash2Buf(hashbytes);
+		std::vector<uint8_t> buffer1Buf(buflen);
+		std::vector<uint8_t> buffer2Buf(buflen);
+		auto* hash1 = hash1Buf.data();
+		auto* hash2 = hash2Buf.data();
+		auto* buffer1 = buffer1Buf.data();
+		auto* buffer2 = buffer2Buf.data();
+
+		for(auto irep = t.minRep; irep < t.maxRep; irep += 1) {
+			if(irep % (reps/10) == 0) printf(".");
+			for(int len = 4; len <= keymax; len++) {
+				for(int offset = pad; offset < pad*2; offset++) {
+					uint8_t * key1 = &buffer1[pad];
+					uint8_t * key2 = &buffer2[pad+offset];
+
+					t.r.rand_p(buffer1,buflen);
+					t.r.rand_p(buffer2,buflen);
+
+					memcpy(key2,key1,len);
+					hash(key1,len,0,hash1);
+
+					for(int bit = 0; bit < (len * 8); bit++) {
+						// Flip a bit, hash the key -> we should get a different result.
+
+						flipbit(key2,len,bit);
+						hash(key2,len,0,hash2);
+
+						if(memcmp(hash1,hash2,hashbytes) == 0) {
+							result = false;
+						}
+
+						// Flip it back, hash again -> we should get the original result.
+
+						flipbit(key2,len,bit);
+						hash(key2,len,0,hash2);
+
+						if(memcmp(hash1,hash2,hashbytes) != 0) {
+							result = false;
+						}
+					}
+				}
+			}
+		}
+	});
+#endif
   if(result == false)
   {
     printf("*********FAIL*********\n");
@@ -145,12 +242,6 @@ bool SanityTest ( pfHash hash, const int hashbits )
   {
     printf("PASS\n");
   }
-
-  delete [] buffer1;
-  delete [] buffer2;
-
-  delete [] hash1;
-  delete [] hash2;
 
   return result;
 }
