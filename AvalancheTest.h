@@ -23,9 +23,8 @@
 double maxBias ( std::vector<int> & counts, int reps );
 
 //-----------------------------------------------------------------------------
-
 template < typename keytype, typename hashtype >
-void calcBias ( pfHash hash, std::vector<int> & counts, int reps, Rand & r )
+void calcBias ( pfHash hash, std::vector<int> & counts_, int reps, Rand & r )
 {
   const int keybytes = sizeof(keytype);
   const int hashbytes = sizeof(hashtype);
@@ -33,6 +32,7 @@ void calcBias ( pfHash hash, std::vector<int> & counts, int reps, Rand & r )
   const int keybits = keybytes * 8;
   const int hashbits = hashbytes * 8;
 
+#if 0
   keytype K;
   hashtype A,B;
 
@@ -61,6 +61,49 @@ void calcBias ( pfHash hash, std::vector<int> & counts, int reps, Rand & r )
       }
     }
   }
+#else
+	struct Test {
+		keytype		K;
+		hashtype	A, B;
+	};
+
+	Mutex mut;
+	std::vector<Test> tests;
+
+	for(int irep = 0; irep < reps; irep++) {
+		tests.push_back(Test());
+		auto& t = tests.back();
+		r.rand_p(&t.K, keybytes);
+	    hash(&t.K,keybytes,0,&t.A);
+	}
+
+	threadForEach([&](size_t index, size_t step) {
+		std::vector<int> counts(counts_.size(), 0);
+		for(size_t irep = index; irep < tests.size(); irep += step) {
+			auto& t = tests[irep];
+			if(irep % (reps/10) == 0) printf(".");
+			int * cursor = counts.data();
+
+			for(int iBit = 0; iBit < keybits; iBit++) {
+				flipbit(&t.K,keybytes,iBit);
+				hash(&t.K,keybytes,0,&t.B);
+				flipbit(&t.K,keybytes,iBit);
+
+				for(int iOut = 0; iOut < hashbits; iOut++) {
+					int bitA = getbit(&t.A,hashbytes,iOut);
+					int bitB = getbit(&t.B,hashbytes,iOut);
+
+					(*cursor++) += (bitA ^ bitB);
+				}
+			}
+		}
+		lockFunc(mut, [&]() {
+			for(auto i = 0u; i < counts_.size(); ++i) {
+				counts_[i] += counts[i];
+			}
+		});
+	});
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -244,18 +287,17 @@ void BicTest3 ( pfHash hash, const int reps, bool verbose = true )
   const int hashbits = hashbytes * 8;
   const int pagesize = hashbits*hashbits*4;
 
-  Rand r(11938);
-
   double maxBias = 0;
   int maxK = 0;
   int maxA = 0;
   int maxB = 0;
 
+#if 0
   keytype key;
   hashtype h1,h2;
 
+  Rand r(11938);
   std::vector<int> bins(keybits*pagesize,0);
-
   for(int keybit = 0; keybit < keybits; keybit++)
   {
     if(keybit % (keybits/10) == 0) printf(".");
@@ -282,7 +324,70 @@ void BicTest3 ( pfHash hash, const int reps, bool verbose = true )
       }
     }
   }
+#else
+	Mutex mut;
 
+	struct Test {
+		int	keybit;
+		Rand r;
+	};
+	std::vector<Test> tests;
+
+	{
+		Rand r_(11938);
+		for(int keybit = 0; keybit < keybits; keybit++) {
+			tests.push_back(Test());
+			auto& t = tests.back();
+			t.keybit = keybit;
+			t.r = r_;
+
+			for(int irep = 0; irep < reps; irep++) {
+				r_.fast_forward(keybytes);
+			}
+		}
+	}
+
+	std::vector<int> bins_(keybits*pagesize,0);
+	threadForEach([&](size_t index, size_t step) {
+		std::vector<int> bins2(bins_.size(), 0);
+		for(size_t i = index; i < tests.size(); i += step) {
+			auto& t = tests[i];
+			int keybit = t.keybit;
+			auto& r = t.r;
+
+			if(keybit % (keybits/10) == 0) printf(".");
+
+			int * page = &bins2[keybit*pagesize];
+
+			keytype key;
+			hashtype h1, h2;
+
+			for(int irep = 0; irep < reps; irep++) {
+				r.rand_p(&key,keybytes);
+				hash(&key,keybytes,0,&h1);
+				flipbit(key,keybit);
+				hash(&key,keybytes,0,&h2);
+
+				hashtype d = h1 ^ h2;
+
+				for(int out1 = 0; out1 < hashbits-1; out1++) {
+					for(int out2 = out1+1; out2 < hashbits; out2++) {
+						int * b = &page[(out1*hashbits+out2)*4];
+
+						uint32_t x = getbit(d,out1) | (getbit(d,out2) << 1);
+
+						b[x]++;
+					}
+				}
+			}
+		}
+		lockFunc(mut, [&]() {
+			for(auto i = 0u; i < bins_.size(); ++i) {
+				bins_[i] += bins2[i];
+			}
+		});
+	});
+#endif
   printf("\n");
 
   for(int out1 = 0; out1 < hashbits-1; out1++)
@@ -293,7 +398,7 @@ void BicTest3 ( pfHash hash, const int reps, bool verbose = true )
 
       for(int keybit = 0; keybit < keybits; keybit++)
       {
-        int * page = &bins[keybit*pagesize];
+        int * page = &bins_[keybit*pagesize];
         int * bins = &page[(out1*hashbits+out2)*4];
 
         double bias = 0;
