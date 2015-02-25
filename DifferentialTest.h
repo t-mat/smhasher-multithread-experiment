@@ -140,14 +140,14 @@ bool DiffTest ( pfHash hash, int diffbits, int reps, bool dumpCollisions )
   double expected  = testcount / pow(2.0,double(hashbits));
 
   Rand r(100);
-
   std::vector<keytype> diffs;
-
-  keytype k1,k2;
-  hashtype h1,h2;
 
   printf("Testing %0.f up-to-%d-bit differentials in %d-bit keys -> %d bit hashes.\n",diffcount,diffbits,keybits,hashbits);
   printf("%d reps, %0.f total tests, expecting %2.2f random collisions",reps,testcount,expected);
+
+#if 0
+  keytype k1,k2;
+  hashtype h1,h2;
 
   for(int i = 0; i < reps; i++)
   {
@@ -160,12 +160,40 @@ bool DiffTest ( pfHash hash, int diffbits, int reps, bool dumpCollisions )
 
     DiffTestRecurse<keytype,hashtype>(hash,k1,k2,h1,h2,0,diffbits,diffs);
   }
+#else
+	struct Test {
+		std::vector<keytype> diff;
+		keytype k1,k2;
+		hashtype h1,h2;
+	};
+
+	std::vector<Test> tests;
+
+	for(int i = 0; i < reps; i++) {
+		tests.push_back(Test());
+		auto& t = tests.back();
+		r.rand_p(&t.k1,sizeof(t.k1));
+		t.k2 = t.k1;
+		hash(&t.k1,sizeof(t.k1),0,(uint32_t*)&t.h1);
+	}
+
+	threadForEach([&](size_t index, size_t step) {
+		for(size_t irep = index; irep < tests.size(); irep += step) {
+			auto& t = tests[irep];
+			if(irep % (reps/10) == 0) printf(".");
+			DiffTestRecurse<keytype,hashtype>(hash,t.k1,t.k2,t.h1,t.h2,0,diffbits,t.diff);
+		}
+	});
+
+	for(auto& t : tests) {
+		diffs.insert(diffs.end(), t.diff.begin(), t.diff.end());
+	}
+#endif
+
   printf("\n");
 
   bool result = true;
-
   result &= ProcessDifferentials(diffs,reps,dumpCollisions);
-
   return result;
 }
 
